@@ -2,11 +2,21 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+
+	jwt "github.com/appleboy/gin-jwt/v2"
 )
+
+type login struct {
+	Username string `form:"username" json:"username" binding:"required"`
+	Password string `form:"password" json:"password" binding:"required"`
+}
 
 type User struct {
 	gorm.Model
@@ -33,6 +43,82 @@ func dbConnect() *gorm.DB {
 
 func main() {
 	r := gin.Default()
+
+	var identityKey = "id"
+
+	authMiddleware, err := jwt.New(&jwt.GinJWTMiddleware{
+		Realm:       "test zone",
+		Key:         []byte("secret key"),
+		Timeout:     time.Hour,
+		MaxRefresh:  time.Hour,
+		IdentityKey: identityKey,
+		PayloadFunc: func(data interface{}) jwt.MapClaims {
+			if v, ok := data.(*User); ok {
+				return jwt.MapClaims{
+					identityKey: v.Username,
+				}
+			}
+			return jwt.MapClaims{}
+		},
+		IdentityHandler: func(c *gin.Context) interface{} {
+			claims := jwt.ExtractClaims(c)
+			return &User{
+				Username: claims[identityKey].(string),
+			}
+		},
+		Authenticator: func(c *gin.Context) (interface{}, error) {
+			var loginVals login
+			if err := c.ShouldBind(&loginVals); err != nil {
+				return "", jwt.ErrMissingLoginValues
+			}
+			Username := loginVals.Username
+			Password := loginVals.Password
+			DB := dbConnect()
+			result := DB.Where("username = ? AND password = ?", Username, Password).Find(&users)
+
+			if result.RowsAffected > 0 {
+				return &User{
+					Username: Username,
+				}, nil
+			}
+
+			return nil, jwt.ErrFailedAuthentication
+		},
+		Authorizator: func(data interface{}, c *gin.Context) bool {
+			if v, ok := data.(*User); ok {
+
+				DB := dbConnect()
+
+				zator := DB.Where("username = ?", v.Username).First(&user)
+
+				if zator.RowsAffected > 0 && user.Status == 10 {
+					return true
+				}
+			}
+
+			return false
+		},
+		Unauthorized: func(c *gin.Context, code int, message string) {
+			c.JSON(code, gin.H{
+				"code":    code,
+				"message": message,
+			})
+		},
+		TokenLookup:   "header: Authorization, query: token, cookie: jwt",
+		TokenHeadName: "Bearer",
+		TimeFunc:      time.Now,
+	})
+
+	if err != nil {
+		log.Fatal("JWT Error:" + err.Error())
+	}
+
+	errInit := authMiddleware.MiddlewareInit()
+
+	if errInit != nil {
+		log.Fatal("authMiddleware.MiddlewareInit() Error:" + errInit.Error())
+	}
+
 	r.POST("/user_register", func(c *gin.Context) {
 
 		user := User{
@@ -56,25 +142,37 @@ func main() {
 
 	})
 
-	r.GET("/users", func(c *gin.Context) {
+	r.POST("/login", authMiddleware.LoginHandler)
 
-		DB := dbConnect()
-
-		if err := DB.Omit("password", "activation_key").Find(&users).Error; err != nil {
-			c.AbortWithStatus(404)
-			fmt.Println(err)
-		} else {
-			c.JSON(200, users)
-		}
-
+	r.NoRoute(authMiddleware.MiddlewareFunc(), func(c *gin.Context) {
+		claims := jwt.ExtractClaims(c)
+		log.Printf("NoRoute claims: %#v\n", claims)
+		c.JSON(404, gin.H{"code": "PAGE_NOT_FOUND", "message": "Page not found"})
 	})
+
+	auth := r.Group("/auth")
+	auth.GET("/refresh_token", authMiddleware.RefreshHandler)
+	auth.Use(authMiddleware.MiddlewareFunc())
+	{
+
+		auth.GET("/users", func(c *gin.Context) {
+
+			DB := dbConnect()
+
+			if err := DB.Omit("password", "activation_key").Find(&users).Error; err != nil {
+				c.AbortWithStatus(404)
+				fmt.Println(err)
+			} else {
+				c.JSON(200, users)
+			}
+
+		})
+
+	}
+
+	if err := http.ListenAndServe(":8000", r); err != nil {
+		log.Fatal(err)
+	}
+
 	r.Run()
-}
-
-func userRegister(user User) uint {
-
-	DB := dbConnect()
-
-	DB.Create(&user)
-	return user.ID
 }
