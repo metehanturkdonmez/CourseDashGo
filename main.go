@@ -1,7 +1,7 @@
 package main
 
 import (
-	"net/http"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
@@ -19,6 +19,18 @@ type User struct {
 	Status        int
 }
 
+var user User
+var users []User
+
+func dbConnect() *gorm.DB {
+
+	DB, _ := gorm.Open(mysql.New(mysql.Config{
+		DSN: "root:root@tcp(localhost:8889)/speedrest?charset=utf8&parseTime=True&loc=Local",
+	}), &gorm.Config{})
+
+	return DB
+}
+
 func main() {
 	r := gin.Default()
 	r.POST("/user_register", func(c *gin.Context) {
@@ -33,20 +45,35 @@ func main() {
 			Status:        0,
 		}
 
-		registerResponse := userRegister(user)
+		DB := dbConnect()
 
-		c.JSON(http.StatusOK, gin.H{
-			"created_user_id": registerResponse,
-		})
+		if err := DB.Create(&user).Error; err != nil {
+			c.AbortWithStatus(404)
+			fmt.Println(err)
+		} else {
+			c.JSON(200, user.ID)
+		}
+
+	})
+
+	r.GET("/users", func(c *gin.Context) {
+
+		DB := dbConnect()
+
+		if err := DB.Omit("password", "activation_key").Find(&users).Error; err != nil {
+			c.AbortWithStatus(404)
+			fmt.Println(err)
+		} else {
+			c.JSON(200, users)
+		}
+
 	})
 	r.Run()
 }
 
 func userRegister(user User) uint {
 
-	DB, _ := gorm.Open(mysql.New(mysql.Config{
-		DSN: "root:root@tcp(localhost:8889)/speedrest?charset=utf8&parseTime=True&loc=Local",
-	}), &gorm.Config{})
+	DB := dbConnect()
 
 	DB.Create(&user)
 	return user.ID
