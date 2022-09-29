@@ -54,16 +54,27 @@ func main() {
 		IdentityKey: identityKey,
 		PayloadFunc: func(data interface{}) jwt.MapClaims {
 			if v, ok := data.(*User); ok {
-				return jwt.MapClaims{
-					identityKey: v.Username,
+
+				DB := dbConnect()
+				result := DB.Where("username = ? AND password = ?", v.Username, v.Password).First(&user)
+
+				if result.RowsAffected > 0 {
+
+					return jwt.MapClaims{
+						"id":       user.ID,
+						"username": user.Username,
+						"email":    user.Email,
+					}
+
 				}
+
 			}
 			return jwt.MapClaims{}
 		},
 		IdentityHandler: func(c *gin.Context) interface{} {
 			claims := jwt.ExtractClaims(c)
 			return &User{
-				Username: claims[identityKey].(string),
+				Username: claims["username"].(string),
 			}
 		},
 		Authenticator: func(c *gin.Context) (interface{}, error) {
@@ -74,11 +85,13 @@ func main() {
 			Username := loginVals.Username
 			Password := loginVals.Password
 			DB := dbConnect()
-			result := DB.Where("username = ? AND password = ?", Username, Password).Find(&users)
+			result := DB.Where("username = ? AND password = ?", Username, Password).First(&user)
 
 			if result.RowsAffected > 0 {
 				return &User{
-					Username: Username,
+					Username: user.Username,
+					Password: user.Password,
+					Status:   user.Status,
 				}, nil
 			}
 
@@ -91,7 +104,7 @@ func main() {
 
 				zator := DB.Where("username = ?", v.Username).First(&user)
 
-				if zator.RowsAffected > 0 && user.Status == 10 {
+				if zator.RowsAffected > 0 && user.Status > 0 {
 					return true
 				}
 			}
@@ -155,12 +168,19 @@ func main() {
 	auth.Use(authMiddleware.MiddlewareFunc())
 	{
 
-		auth.GET("/users", func(c *gin.Context) {
+	}
+
+	admin := r.Group("/admin")
+	admin.Use(authMiddleware.MiddlewareFunc())
+	{
+
+		admin.GET("/users", func(c *gin.Context) {
 
 			DB := dbConnect()
 
 			if err := DB.Omit("password", "activation_key").Find(&users).Error; err != nil {
 				c.AbortWithStatus(404)
+
 				fmt.Println(err)
 			} else {
 				c.JSON(200, users)
