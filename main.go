@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"time"
 
@@ -134,13 +135,26 @@ func main() {
 
 	r.POST("/user_register", func(c *gin.Context) {
 
+		rand.Seed(time.Now().Unix())
+
+		str := "1234567890ABCDEFGH"
+
+		shuff := []rune(str)
+
+		// Shuffling the string
+		rand.Shuffle(len(shuff), func(i, j int) {
+			shuff[i], shuff[j] = shuff[j], shuff[i]
+		})
+
+		actKey := string(shuff[0:6])
+
 		user := User{
 			Username:      c.PostForm("username"),
 			Password:      c.PostForm("password"),
 			DisplayName:   c.PostForm("display_name"),
 			Email:         c.PostForm("email"),
 			UserUrl:       c.PostForm("user_url"),
-			ActivationKey: c.PostForm("activation_key"),
+			ActivationKey: actKey,
 			Status:        0,
 		}
 
