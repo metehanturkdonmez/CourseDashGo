@@ -171,6 +171,37 @@ func main() {
 
 	r.POST("/login", authMiddleware.LoginHandler)
 
+	r.GET("/activation", func(c *gin.Context) {
+		if key, ok := c.GetQuery("key"); ok {
+
+			if user.Username == "" {
+				c.JSON(200, gin.H{"error": "token expired"})
+				return
+			}
+
+			if user.Status == 0 {
+
+				if key == user.ActivationKey {
+
+					DB := dbConnect()
+					user.Status = 1
+					DB.Save(&user)
+
+					c.JSON(200, gin.H{"success": "user is activated", "user": &user})
+				} else {
+
+					c.JSON(200, gin.H{"error": "wrong activation code"})
+
+				}
+
+			} else {
+				c.JSON(200, gin.H{"success": "user is already active", "user": &user})
+			}
+
+		}
+
+	})
+
 	r.NoRoute(authMiddleware.MiddlewareFunc(), func(c *gin.Context) {
 		claims := jwt.ExtractClaims(c)
 		log.Printf("NoRoute claims: %#v\n", claims)
