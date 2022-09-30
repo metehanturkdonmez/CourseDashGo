@@ -148,6 +148,22 @@ func main() {
 
 		actKey := string(shuff[0:6])
 
+		DB := dbConnect()
+
+		existUsername := DB.Where("username = ?", c.PostForm("username")).First(&user)
+
+		existEmail := DB.Where("email = ?", c.PostForm("email")).First(&user)
+
+		if existUsername.RowsAffected > 0 {
+			c.JSON(200, gin.H{"error": "Username exists"})
+			return
+		}
+
+		if existEmail.RowsAffected > 0 {
+			c.JSON(200, gin.H{"error": "Email address exists"})
+			return
+		}
+
 		user := User{
 			Username:      c.PostForm("username"),
 			Password:      c.PostForm("password"),
@@ -158,13 +174,13 @@ func main() {
 			Status:        0,
 		}
 
-		DB := dbConnect()
-
 		if err := DB.Create(&user).Error; err != nil {
 			c.AbortWithStatus(404)
 			fmt.Println(err)
 		} else {
-			c.JSON(200, user.ID)
+			user.ActivationKey = ""
+			user.Password = ""
+			c.JSON(200, user)
 		}
 
 	})
