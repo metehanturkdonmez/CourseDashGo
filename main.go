@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,6 +35,32 @@ type User struct {
 var user User
 var users []User
 
+type Taxonomy struct {
+	gorm.Model
+	Name   string
+	Slug   string
+	Type   string
+	parent int
+}
+
+var taxonomy Taxonomy
+var taxonomies []Taxonomy
+
+type lessonCategories []byte
+type lessonTags []byte
+
+type Lesson struct {
+	gorm.Model
+	Name     string
+	Slug     string
+	Content  string
+	Category lessonCategories `gorm:"type:json"`
+	Tag      lessonTags       `gorm:"type:json"`
+}
+
+var lesson Lesson
+var lessons []Lesson
+
 func dbConnect() *gorm.DB {
 
 	DB, _ := gorm.Open(mysql.New(mysql.Config{
@@ -40,6 +68,18 @@ func dbConnect() *gorm.DB {
 	}), &gorm.Config{})
 
 	return DB
+}
+
+func getTaxonomy(id string) uint {
+
+	DB := dbConnect()
+
+	var rettaxonomy Taxonomy
+
+	_ = DB.Where("id = ?", id).First(&rettaxonomy)
+
+	return rettaxonomy.ID
+
 }
 
 func main() {
@@ -248,6 +288,58 @@ func main() {
 			}
 
 		})
+
+		course := admin.Group("/course")
+
+		course.Use(authMiddleware.MiddlewareFunc())
+		{
+			course.GET("/list", func(c *gin.Context) {
+
+				c.JSON(200, "list")
+
+			})
+
+			course.GET("/lessons", func(c *gin.Context) {
+
+				DB := dbConnect()
+
+				if err := DB.Find(&lessons).Error; err != nil {
+					c.AbortWithStatus(404)
+
+					fmt.Println(err)
+				} else {
+					c.JSON(200, lessons)
+				}
+
+			})
+
+			course.POST("/lessons", func(c *gin.Context) {
+
+				DB := dbConnect()
+
+				lessonCategoryIDs, _ := json.Marshal(regexp.MustCompile(",+").Split(c.PostForm("categories"), -1))
+				lessonTagIDs, _ := json.Marshal(regexp.MustCompile(",+").Split(c.PostForm("tags"), -1))
+
+				fmt.Println(lessonCategoryIDs)
+
+				lesson := Lesson{
+					Name:     c.PostForm("name"),
+					Slug:     c.PostForm("slug"),
+					Content:  c.PostForm("content"),
+					Category: lessonCategoryIDs,
+					Tag:      lessonTagIDs,
+				}
+
+				if err := DB.Create(&lesson).Error; err != nil {
+					c.AbortWithStatus(404)
+					fmt.Println(err)
+				} else {
+					c.JSON(200, lesson)
+				}
+
+			})
+
+		}
 
 	}
 
